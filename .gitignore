@@ -1,0 +1,23 @@
+# Node.js dependencies
+node_modules/
+**/node_modules/
+
+# Python virtual environment
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Build files
+dist/
+build/
+# Local SQLite database
+*.db
