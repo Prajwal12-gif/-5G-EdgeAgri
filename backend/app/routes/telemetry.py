@@ -20,7 +20,7 @@ router = APIRouter(prefix="/telemetry", tags=["Telemetry"])
 def get_live_telemetry():
     return {
         "status": "success",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.utcnow().isoformat() + "Z",
         "zones": virtual_sensors.latest_telemetry,
         "is_simulated": True,
         "active_profile": virtual_sensors.zones.get("zone_1", {}).get("network_profile", "5g_urllc"),
@@ -30,16 +30,34 @@ def get_live_telemetry():
 @router.get("/history", response_model=list[SensorReadingOut])
 def get_historical_telemetry(
     zone_id: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=2000),
-    hours: Optional[int] = Query(24, ge=1, le=168),
+    limit: int = Query(1500, ge=1, le=5000, description="Maximum number of evenly sampled chart points"),
+    hours: int = Query(24, ge=1, le=168),
     db: Session = Depends(get_db),
 ):
-    query = db.query(SensorReading)
+    """
+    Return readings from the entire requested time window, evenly downsampled
+    to `limit` points. This makes 1H, 6H and 24H genuinely different windows
+    without sending every two-second sensor reading to the browser.
+    Stored SQLite timestamps are naive UTC; the API serializes them as UTC
+    ISO strings, which the frontend parses explicitly as UTC.
+    """
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    query = db.query(SensorReading).filter(SensorReading.timestamp >= cutoff)
+
     if zone_id:
         query = query.filter(SensorReading.zone_id == zone_id)
-    if hours:
-        query = query.filter(SensorReading.timestamp >= datetime.utcnow() - timedelta(hours=hours))
-    return query.order_by(desc(SensorReading.timestamp)).limit(limit).all()
+
+    # Fetch the complete selected time range, newest first. With 3 simulated
+    # zones and a 2-second interval, 24 hours is still a manageable result set.
+    readings = query.order_by(desc(SensorReading.timestamp)).all()
+
+    # Evenly sample the complete range rather than taking only the newest N rows.
+    if len(readings) > limit:
+        last_index = len(readings) - 1
+        indexes = [round(i * last_index / (limit - 1)) for i in range(limit)] if limit > 1 else [0]
+        readings = [readings[index] for index in indexes]
+
+    return readings
 
 
 @router.get("/export-csv")

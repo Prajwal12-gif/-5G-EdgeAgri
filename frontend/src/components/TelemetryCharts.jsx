@@ -14,6 +14,36 @@ import {
 import { BarChart3, Clock, TrendingUp, RefreshCcw } from 'lucide-react';
 import { api } from '../services/api';
 
+// Backend stores timestamps as naive UTC strings. Explicitly mark them as UTC
+// before parsing so browsers in other time zones display the correct local time.
+function parseUtcTimestamp(value) {
+  if (!value) return NaN;
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
+  return new Date(normalized).getTime();
+}
+
+function formatAxisTime(timestamp) {
+  if (!Number.isFinite(timestamp)) return '';
+  return new Date(timestamp).toLocaleString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(new Date(timestamp).getDate() !== new Date().getDate()
+      ? { day: '2-digit', month: 'short' }
+      : {})
+  });
+}
+
+function formatTooltipTime(timestamp) {
+  if (!Number.isFinite(Number(timestamp))) return '';
+  return new Date(Number(timestamp)).toLocaleString([], {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
+
 export default function TelemetryCharts({ selectedZone }) {
   const [historyData, setHistoryData] = useState([]);
   const [activeMetric, setActiveMetric] = useState('moisture'); // moisture, temp_humidity, reservoir, latency
@@ -25,18 +55,20 @@ export default function TelemetryCharts({ selectedZone }) {
     try {
       const data = await api.getHistoricalTelemetry(
         selectedZone === 'all' ? null : selectedZone,
-        150,
+        1500,
         timeWindowHours
       );
-      // Format timestamps for chart
+
+      // API returns newest-first; charts need chronological order.
       const formatted = (data || []).map((item) => {
-        const d = new Date(item.timestamp);
+        const rawTime = parseUtcTimestamp(item.timestamp);
         return {
           ...item,
-          timeLabel: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          rawTime: d.getTime()
+          timeLabel: formatAxisTime(rawTime),
+          rawTime
         };
-      }).reverse();
+      }).filter((item) => Number.isFinite(item.rawTime)).reverse();
+
       setHistoryData(formatted);
     } catch (e) {
       console.error("Failed to fetch historical telemetry:", e);
@@ -158,9 +190,10 @@ export default function TelemetryCharts({ selectedZone }) {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f293d" vertical={false} />
-                <XAxis dataKey="timeLabel" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="rawTime" type="number" scale="time" domain={["dataMin", "dataMax"]} tickCount={6} tickFormatter={formatAxisTime} stroke="#64748b" tick={{ fontSize: 11 }} />
                 <YAxis stroke="#64748b" tick={{ fontSize: 11 }} domain={[0, 100]} />
                 <Tooltip 
+                  labelFormatter={formatTooltipTime}
                   contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }} 
                   itemStyle={{ color: '#10b981' }}
                 />
@@ -184,9 +217,9 @@ export default function TelemetryCharts({ selectedZone }) {
             ) : activeMetric === 'temp_humidity' ? (
               <LineChart data={historyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f293d" vertical={false} />
-                <XAxis dataKey="timeLabel" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="rawTime" type="number" scale="time" domain={["dataMin", "dataMax"]} tickCount={6} tickFormatter={formatAxisTime} stroke="#64748b" tick={{ fontSize: 11 }} />
                 <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }} />
+                <Tooltip labelFormatter={formatTooltipTime} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }} />
                 <ReferenceLine y={38} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: 'Heat Stress (38°C)', fill: '#f59e0b', fontSize: 10 }} />
                 <Line type="monotone" dataKey="temperature" name="Temperature (°C)" stroke="#f59e0b" strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="humidity" name="Humidity (%)" stroke="#38bdf8" strokeWidth={2} dot={false} />
@@ -200,18 +233,18 @@ export default function TelemetryCharts({ selectedZone }) {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f293d" vertical={false} />
-                <XAxis dataKey="timeLabel" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="rawTime" type="number" scale="time" domain={["dataMin", "dataMax"]} tickCount={6} tickFormatter={formatAxisTime} stroke="#64748b" tick={{ fontSize: 11 }} />
                 <YAxis stroke="#64748b" tick={{ fontSize: 11 }} domain={[0, 100]} />
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }} />
+                <Tooltip labelFormatter={formatTooltipTime} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }} />
                 <ReferenceLine y={20} stroke="#f43f5e" strokeDasharray="3 3" label={{ value: 'Low Water Refill Trigger (20%)', fill: '#f43f5e', fontSize: 10 }} />
                 <Area type="monotone" dataKey="water_level" name="Reservoir Level (%)" stroke="#06b6d4" strokeWidth={2.5} fill="url(#tankGradient)" />
               </AreaChart>
             ) : (
               <LineChart data={historyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f293d" vertical={false} />
-                <XAxis dataKey="timeLabel" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="rawTime" type="number" scale="time" domain={["dataMin", "dataMax"]} tickCount={6} tickFormatter={formatAxisTime} stroke="#64748b" tick={{ fontSize: 11 }} />
                 <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }} />
+                <Tooltip labelFormatter={formatTooltipTime} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }} />
                 <Line type="monotone" dataKey="network_latency_ms" name="5G Latency (ms)" stroke="#818cf8" strokeWidth={2} dot={false} />
               </LineChart>
             )}
